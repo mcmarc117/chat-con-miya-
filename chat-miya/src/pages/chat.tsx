@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import {
   useGetMe,
@@ -31,12 +31,15 @@ export default function Chat() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
   const [newMessage, setNewMessage] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedMsgId, setSelectedMsgId] = useState<number | null>(null);
   const [showEmojis, setShowEmojis] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const initialized = useRef(false);
 
   const { data: user, isError: authError } = useGetMe({
@@ -52,10 +55,10 @@ export default function Chat() {
     }
   }, [authError, setLocation]);
 
-  const queryKey = getGetMessagesQueryKey({ limit: 100 });
+  const queryKey = getGetMessagesQueryKey({ limit: 50 });
 
   const { data: messagesData, isLoading: messagesLoading } = useGetMessages(
-    { limit: 100 },
+    { limit: 50 },
     {
       query: {
         queryKey,
@@ -66,7 +69,10 @@ export default function Chat() {
 
   useEffect(() => {
     if (messagesData?.messages) {
-      setMessages([...messagesData.messages].reverse());
+      // Server already returns messages in ascending order (oldest first, newest last)
+      // DO NOT reverse — they are already in the correct order
+      setMessages([...messagesData.messages]);
+      setHasMore(messagesData.messages.length >= 50);
       if (!initialized.current) {
         initialized.current = true;
         setTimeout(scrollToBottom, 100);
@@ -120,6 +126,51 @@ export default function Chat() {
 
     return () => sse.close();
   }, [user, queryClient]);
+
+  // Load older messages when scrolling to top
+  const loadMoreMessages = useCallback(async () => {
+    if (loadingMore || !hasMore || messages.length === 0) return;
+    const oldestId = messages[0].id;
+    const container = scrollContainerRef.current;
+    const scrollHeightBefore = container?.scrollHeight ?? 0;
+
+    setLoadingMore(true);
+    try {
+      const res = await fetch(`/api/messages?limit=50&before=${oldestId}`, {
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (data.messages && data.messages.length > 0) {
+        setMessages((prev) => [...data.messages, ...prev]);
+        setHasMore(data.messages.length >= 50);
+        // Restore scroll position so it does not jump to top
+        requestAnimationFrame(() => {
+          if (container) {
+            container.scrollTop = container.scrollHeight - scrollHeightBefore;
+          }
+        });
+      } else {
+        setHasMore(false);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, messages]);
+
+  // Detect scroll to top → load more
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      if (container.scrollTop < 60 && hasMore && !loadingMore) {
+        loadMoreMessages();
+      }
+    };
+    container.addEventListener("scroll", handleScroll);
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [loadMoreMessages, hasMore, loadingMore]);
 
   // Close emoji picker on outside click
   useEffect(() => {
@@ -233,7 +284,10 @@ export default function Chat() {
       </header>
 
       {/* Chat Area */}
-      <main className="flex-1 overflow-y-auto p-4 space-y-1 flex flex-col scroll-smooth">
+      <main
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto p-4 space-y-1 flex flex-col scroll-smooth"
+      >
         {messagesLoading ? (
           <div className="flex-1 flex flex-col justify-end space-y-4">
             {[1, 2, 3].map((i) => (
@@ -244,6 +298,19 @@ export default function Chat() {
           </div>
         ) : (
           <div className="flex-1 flex flex-col justify-end min-h-full">
+            {/* Load more indicator */}
+            {loadingMore && (
+              <div className="flex justify-center py-3">
+                <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+              </div>
+            )}
+            {!hasMore && messages.length > 0 && (
+              <div className="text-center py-3">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground/40 font-medium">
+                  Inicio de la conversación
+                </span>
+              </div>
+            )}
             <div className="space-y-1 pb-2">
               <AnimatePresence initial={false}>
                 {messages.map((msg, idx) => {
