@@ -286,7 +286,7 @@ export default function Chat() {
       {/* Chat Area */}
       <main
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-1 flex flex-col scroll-smooth"
+        className="flex-1 overflow-y-auto p-4 space-y-1 flex flex-col scroll-smooth overscroll-y-contain"
       >
         {messagesLoading ? (
           <div className="flex-1 flex flex-col justify-end space-y-4">
