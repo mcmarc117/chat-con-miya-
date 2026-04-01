@@ -386,15 +386,13 @@ export default function Chat() {
                         exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
                         className={`flex relative ${isMine ? "justify-end" : "justify-start"}`}
                       >
-                        {/* Reply icon — fades in as you swipe right */}
+                        {/* Reply icon — appears on left as bubble slides right */}
                         <div
-                          className="absolute top-1/2 pointer-events-none"
+                          className="absolute left-0 top-1/2 pointer-events-none"
                           style={{
-                            left: isMine ? undefined : `${Math.max(currentSwipeX - 28, -4)}px`,
-                            right: isMine ? `${Math.max(currentSwipeX - 28, -4)}px` : undefined,
-                            transform: "translateY(-50%)",
-                            opacity: Math.min(currentSwipeX / 50, 1),
-                            transition: currentSwipeX === 0 ? "opacity 0.2s" : "none",
+                            transform: `translateX(${currentSwipeX - 32}px) translateY(-50%)`,
+                            opacity: Math.min(currentSwipeX / 45, 1),
+                            transition: currentSwipeX === 0 ? "all 0.25s ease-out" : "none",
                           }}
                         >
                           <Reply className="w-5 h-5 text-primary" />
@@ -403,7 +401,7 @@ export default function Chat() {
                         {/* Swipe wrapper */}
                         <div
                           style={{
-                            transform: `translateX(${isMine ? -currentSwipeX : currentSwipeX}px)`,
+                            transform: `translateX(${currentSwipeX}px)`,
                             transition: currentSwipeX === 0 ? "transform 0.25s ease-out" : "none",
                             display: "flex",
                           }}
