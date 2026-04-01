@@ -62,6 +62,9 @@ export const GetMessagesResponse = zod.object({
       content: zod.string(),
       createdAt: zod.coerce.date(),
       isRead: zod.boolean(),
+      replyToId: zod.number().nullable().optional(),
+      replyToContent: zod.string().nullable().optional(),
+      replyToSenderName: zod.string().nullable().optional(),
     }),
   ),
   total: zod.number(),
@@ -72,6 +75,7 @@ export const GetMessagesResponse = zod.object({
  */
 export const SendMessageBody = zod.object({
   content: zod.string(),
+  replyToId: zod.coerce.number().nullable().optional(),
 });
 
 /**
