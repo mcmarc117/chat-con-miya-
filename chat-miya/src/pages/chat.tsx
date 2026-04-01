@@ -171,7 +171,7 @@ export default function Chat() {
         loadMoreMessages();
       }
     };
-    container.addEventListener("scroll", handleScroll);
+    container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
   }, [loadMoreMessages, hasMore, loadingMore]);
 
@@ -292,11 +292,11 @@ export default function Chat() {
       {/* Chat Area */}
       <main
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-scroll p-4 space-y-1 flex flex-col overscroll-y-contain"
+        className="flex-1 overflow-y-scroll"
         style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
       >
         {messagesLoading ? (
-          <div className="flex-1 flex flex-col justify-end space-y-4">
+          <div className="flex flex-col justify-end min-h-full p-4 space-y-4">
             {[1, 2, 3].map((i) => (
               <div key={i} className={`flex ${i % 2 === 0 ? "justify-end" : "justify-start"}`}>
                 <div className="w-48 h-12 bg-muted/50 rounded-2xl animate-pulse" />
@@ -304,7 +304,7 @@ export default function Chat() {
             ))}
           </div>
         ) : (
-          <div className="flex-1 flex flex-col justify-end min-h-full">
+          <div className="flex flex-col justify-end min-h-full p-4">
             {/* Load more indicator */}
             {loadingMore && (
               <div className="flex justify-center py-3">
