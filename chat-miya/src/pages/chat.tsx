@@ -144,10 +144,13 @@ export default function Chat() {
         setMessages((prev) => [...data.messages, ...prev]);
         setHasMore(data.messages.length >= 50);
         // Restore scroll position so it does not jump to top
+        // Double rAF needed on iOS: first frame lets React flush DOM, second applies scroll
         requestAnimationFrame(() => {
-          if (container) {
-            container.scrollTop = container.scrollHeight - scrollHeightBefore;
-          }
+          requestAnimationFrame(() => {
+            if (container) {
+              container.scrollTop = container.scrollHeight - scrollHeightBefore;
+            }
+          });
         });
       } else {
         setHasMore(false);
@@ -186,7 +189,10 @@ export default function Chat() {
   }, [showEmojis]);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
   };
 
   const sendMessageMutation = useSendMessage({
@@ -286,7 +292,8 @@ export default function Chat() {
       {/* Chat Area */}
       <main
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-1 flex flex-col scroll-smooth overscroll-y-contain"
+        className="flex-1 overflow-y-scroll p-4 space-y-1 flex flex-col overscroll-y-contain"
+        style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
       >
         {messagesLoading ? (
           <div className="flex-1 flex flex-col justify-end space-y-4">
