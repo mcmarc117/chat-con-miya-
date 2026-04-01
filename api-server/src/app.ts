@@ -29,7 +29,7 @@ app.use(
   }),
 );
 app.use(cors({ credentials: true, origin: true }));
-app.use(cookieParser());
+app.use(cookieParser(process.env.SESSION_SECRET));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -38,9 +38,22 @@ app.use("/api", router);
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const frontendPath = path.resolve(__dirname, "../../chat-miya/dist/public");
-  app.use(express.static(frontendPath));
+  app.use(
+    express.static(frontendPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith("index.html")) {
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+          res.setHeader("Pragma", "no-cache");
+          res.setHeader("Expires", "0");
+        }
+      },
+    }),
+  );
   // Use a JS RegExp to bypass Express 5 path-to-regexp parsing for catch-all SPA route
   app.get(/.*/, (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     res.sendFile(path.join(frontendPath, "index.html"));
   });
 }
