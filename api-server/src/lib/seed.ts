@@ -10,11 +10,26 @@ function hashPassword(password: string): string {
 }
 
 const USERS = [
-  { username: "yo", displayName: "Yo", password: "Francisco" },
+  { username: "marc", displayName: "Marc", password: "Francisco" },
   { username: "miya", displayName: "Miya", password: "Francisco" },
 ];
 
 export async function seedUsers(): Promise<void> {
+  // Migrate old "yo" username to "marc" if it still exists
+  const oldYo = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(eq(usersTable.username, "yo"))
+    .limit(1);
+
+  if (oldYo.length > 0) {
+    await db
+      .update(usersTable)
+      .set({ username: "marc", displayName: "Marc" })
+      .where(eq(usersTable.username, "yo"));
+    logger.info("Migrated user 'yo' -> 'marc'");
+  }
+
   for (const u of USERS) {
     const existing = await db
       .select({ id: usersTable.id })
