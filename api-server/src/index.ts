@@ -2,18 +2,29 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { seedUsers } from "./lib/seed";
 
+// Catch any unhandled errors and print them before exiting
+process.on("uncaughtException", (err) => {
+  console.error("FATAL uncaughtException:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("FATAL unhandledRejection:", reason);
+  process.exit(1);
+});
+
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
+  console.error("PORT environment variable is required but was not provided.");
+  process.exit(1);
 }
 
 const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
+  console.error(`Invalid PORT value: "${rawPort}"`);
+  process.exit(1);
 }
 
 app.listen(port, () => {
