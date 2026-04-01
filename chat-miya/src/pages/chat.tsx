@@ -11,7 +11,7 @@ import {
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { LogOut, Trash2, Check, CheckCheck, Send, Smile, Reply, X } from "lucide-react";
+import { LogOut, Trash2, Check, CheckCheck, Send, Smile, Reply, X, Tv } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -322,14 +322,25 @@ export default function Chat() {
             <p className="text-xs text-muted-foreground">Aquí podremos hablar libremente</p>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-muted-foreground hover:text-foreground"
-          onClick={() => logoutMutation.mutate()}
-        >
-          <LogOut className="w-4 h-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-primary"
+            onClick={() => setLocation("/watch")}
+            title="Watch Party"
+          >
+            <Tv className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground"
+            onClick={() => logoutMutation.mutate()}
+          >
+            <LogOut className="w-4 h-4" />
+          </Button>
+        </div>
       </header>
 
       {/* Chat Area */}
