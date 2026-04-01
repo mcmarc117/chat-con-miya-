@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { db, messagesTable, usersTable } from "@workspace/db";
-import { eq, desc, isNull, lt, and, ne } from "drizzle-orm";
-import { alias } from "drizzle-orm";
+import { eq, desc, isNull, lt, and, ne, inArray } from "drizzle-orm";
 import { SendMessageBody, GetMessagesQueryParams, DeleteMessageParams } from "@workspace/api-zod";
 import { requireAuth } from "../lib/session";
 import { broadcastMessage, addSSEClient, removeSSEClient } from "../lib/sse";
@@ -18,12 +17,10 @@ router.get("/sse", (req, res) => {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
-  // Send a heartbeat immediately
   res.write("event: connected\ndata: {}\n\n");
 
   const client = addSSEClient(req.user!.userId, res);
 
-  // Heartbeat every 30s to keep connection alive
   const heartbeat = setInterval(() => {
     try {
       res.write("event: ping\ndata: {}\n\n");
@@ -49,9 +46,6 @@ router.get("/", async (req, res) => {
     conditions.push(lt(messagesTable.id, before));
   }
 
-  const replyMsg = alias(messagesTable, "reply_msg");
-  const replyUser = alias(usersTable, "reply_user");
-
   const rows = await db
     .select({
       id: messagesTable.id,
@@ -61,20 +55,38 @@ router.get("/", async (req, res) => {
       createdAt: messagesTable.createdAt,
       isRead: messagesTable.isRead,
       replyToId: messagesTable.replyToId,
-      replyToContent: replyMsg.content,
-      replyToSenderName: replyUser.displayName,
     })
     .from(messagesTable)
     .innerJoin(usersTable, eq(messagesTable.senderId, usersTable.id))
-    .leftJoin(replyMsg, eq(messagesTable.replyToId, replyMsg.id))
-    .leftJoin(replyUser, eq(replyMsg.senderId, replyUser.id))
     .where(and(...conditions))
     .orderBy(desc(messagesTable.createdAt))
     .limit(limit);
 
+  // Fetch reply content in a separate query (avoids self-join / alias issues)
+  const replyIds = [...new Set(rows.filter((r) => r.replyToId).map((r) => r.replyToId as number))];
+  const replyMap = new Map<number, { content: string; senderName: string }>();
+
+  if (replyIds.length > 0) {
+    const replyRows = await db
+      .select({
+        id: messagesTable.id,
+        content: messagesTable.content,
+        senderName: usersTable.displayName,
+      })
+      .from(messagesTable)
+      .innerJoin(usersTable, eq(messagesTable.senderId, usersTable.id))
+      .where(inArray(messagesTable.id, replyIds));
+
+    for (const r of replyRows) {
+      replyMap.set(r.id, { content: r.content, senderName: r.senderName });
+    }
+  }
+
   const messages = rows.reverse().map((m) => ({
     ...m,
     createdAt: m.createdAt.toISOString(),
+    replyToContent: m.replyToId ? (replyMap.get(m.replyToId)?.content ?? null) : null,
+    replyToSenderName: m.replyToId ? (replyMap.get(m.replyToId)?.senderName ?? null) : null,
   }));
 
   res.json({ messages, total: messages.length });
@@ -103,7 +115,7 @@ router.post("/", async (req, res) => {
     })
     .returning();
 
-  // Fetch reply context if this message is a reply
+  // Fetch reply context
   let replyToContent: string | null = null;
   let replyToSenderName: string | null = null;
   if (newMsg.replyToId) {
@@ -132,7 +144,6 @@ router.post("/", async (req, res) => {
   };
 
   broadcastMessage("message", message);
-
   res.status(201).json(message);
 });
 
@@ -150,7 +161,6 @@ router.post("/read", async (req, res) => {
     );
 
   broadcastMessage("read", { userId: req.user!.userId });
-
   res.json({ success: true });
 });
 
@@ -199,7 +209,6 @@ router.delete("/:id", async (req, res) => {
     .where(eq(messagesTable.id, parsed.data.id));
 
   broadcastMessage("delete", { id: parsed.data.id });
-
   res.json({ success: true });
 });
 
