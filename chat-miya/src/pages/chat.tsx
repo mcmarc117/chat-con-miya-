@@ -248,7 +248,10 @@ export default function Chat() {
 
   const logoutMutation = useLogout({
     mutation: {
-      onSuccess: () => setLocation("/login"),
+      onSuccess: () => {
+        queryClient.clear();
+        setLocation("/login");
+      },
     },
   });
 
@@ -436,27 +439,33 @@ export default function Chat() {
                               </div>
                             )}
 
-                            <div className="whitespace-pre-wrap break-words">{msg.content}</div>
-
-                            {isMine && (
-                              <div className="flex justify-end mt-1 items-center gap-1 opacity-70">
-                                <span className="text-[10px]">
-                                  {format(new Date(msg.createdAt), "HH:mm")}
-                                </span>
-                                {msg.isRead ? (
-                                  <CheckCheck className="w-3 h-3" />
-                                ) : (
-                                  <Check className="w-3 h-3" />
-                                )}
-                              </div>
-                            )}
-                            {!isMine && (
-                              <div className="flex justify-start mt-1 items-center opacity-40">
-                                <span className="text-[10px]">
-                                  {format(new Date(msg.createdAt), "HH:mm")}
-                                </span>
-                              </div>
-                            )}
+                            <div className="relative">
+                              <span className="whitespace-pre-wrap break-words">{msg.content}</span>
+                              {isMine ? (
+                                <>
+                                  <span className="inline-block align-bottom w-16 h-3" />
+                                  <div className="absolute bottom-0 right-0 flex items-center gap-1 opacity-70">
+                                    <span className="text-[10px]">
+                                      {format(new Date(msg.createdAt), "HH:mm")}
+                                    </span>
+                                    {msg.isRead ? (
+                                      <CheckCheck className="w-3 h-3" />
+                                    ) : (
+                                      <Check className="w-3 h-3" />
+                                    )}
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="inline-block align-bottom w-10 h-3" />
+                                  <div className="absolute bottom-0 right-0 flex items-center opacity-40">
+                                    <span className="text-[10px]">
+                                      {format(new Date(msg.createdAt), "HH:mm")}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
 
