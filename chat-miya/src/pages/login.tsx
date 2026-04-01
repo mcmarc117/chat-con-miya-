@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useLogin, useGetMe } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -20,9 +20,11 @@ export default function Login() {
     },
   });
 
-  if (user) {
-    setLocation("/");
-  }
+  useEffect(() => {
+    if (user) {
+      setLocation("/");
+    }
+  }, [user, setLocation]);
 
   const loginMutation = useLogin({
     mutation: {
