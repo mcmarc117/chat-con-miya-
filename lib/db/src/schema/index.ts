@@ -19,6 +19,7 @@ export const messagesTable = pgTable("messages", {
     .notNull()
     .references(() => usersTable.id),
   content: text("content").notNull(),
+  replyToId: integer("reply_to_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   isRead: boolean("is_read").notNull().default(false),
   deletedAt: timestamp("deleted_at"),
