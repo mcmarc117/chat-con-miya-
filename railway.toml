@@ -3,4 +3,4 @@ buildCommand = "BASE_PATH=/ NODE_ENV=production pnpm --filter @workspace/chat-mi
 
 [deploy]
 startCommand = "NODE_ENV=production node api-server/dist/index.mjs"
-healthcheckPath = "/api/health"
+healthcheckPath = "/api/healthz"
