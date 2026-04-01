@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, messagesTable, usersTable } from "@workspace/db";
 import { eq, desc, isNull, lt, and, ne } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { SendMessageBody, GetMessagesQueryParams, DeleteMessageParams } from "@workspace/api-zod";
 import { requireAuth } from "../lib/session";
 import { broadcastMessage, addSSEClient, removeSSEClient } from "../lib/sse";
@@ -48,6 +49,9 @@ router.get("/", async (req, res) => {
     conditions.push(lt(messagesTable.id, before));
   }
 
+  const replyMsg = alias(messagesTable, "reply_msg");
+  const replyUser = alias(usersTable, "reply_user");
+
   const rows = await db
     .select({
       id: messagesTable.id,
@@ -56,9 +60,14 @@ router.get("/", async (req, res) => {
       content: messagesTable.content,
       createdAt: messagesTable.createdAt,
       isRead: messagesTable.isRead,
+      replyToId: messagesTable.replyToId,
+      replyToContent: replyMsg.content,
+      replyToSenderName: replyUser.displayName,
     })
     .from(messagesTable)
     .innerJoin(usersTable, eq(messagesTable.senderId, usersTable.id))
+    .leftJoin(replyMsg, eq(messagesTable.replyToId, replyMsg.id))
+    .leftJoin(replyUser, eq(replyMsg.senderId, replyUser.id))
     .where(and(...conditions))
     .orderBy(desc(messagesTable.createdAt))
     .limit(limit);
@@ -79,7 +88,7 @@ router.post("/", async (req, res) => {
     return;
   }
 
-  const { content } = parsed.data;
+  const { content, replyToId } = parsed.data;
   if (!content.trim()) {
     res.status(400).json({ error: "Message cannot be empty" });
     return;
@@ -90,8 +99,25 @@ router.post("/", async (req, res) => {
     .values({
       senderId: req.user!.userId,
       content: content.trim(),
+      replyToId: replyToId ?? null,
     })
     .returning();
+
+  // Fetch reply context if this message is a reply
+  let replyToContent: string | null = null;
+  let replyToSenderName: string | null = null;
+  if (newMsg.replyToId) {
+    const replyRows = await db
+      .select({ content: messagesTable.content, displayName: usersTable.displayName })
+      .from(messagesTable)
+      .innerJoin(usersTable, eq(messagesTable.senderId, usersTable.id))
+      .where(eq(messagesTable.id, newMsg.replyToId))
+      .limit(1);
+    if (replyRows[0]) {
+      replyToContent = replyRows[0].content;
+      replyToSenderName = replyRows[0].displayName;
+    }
+  }
 
   const message = {
     id: newMsg.id,
@@ -100,6 +126,9 @@ router.post("/", async (req, res) => {
     content: newMsg.content,
     createdAt: newMsg.createdAt.toISOString(),
     isRead: newMsg.isRead,
+    replyToId: newMsg.replyToId ?? null,
+    replyToContent,
+    replyToSenderName,
   };
 
   broadcastMessage("message", message);
@@ -150,10 +179,9 @@ router.delete("/:id", async (req, res) => {
   }
 
   const [msg] = await db
-    .select()
+    .select({ senderId: messagesTable.senderId })
     .from(messagesTable)
-    .where(eq(messagesTable.id, parsed.data.id))
-    .limit(1);
+    .where(eq(messagesTable.id, parsed.data.id));
 
   if (!msg) {
     res.status(404).json({ error: "Message not found" });
