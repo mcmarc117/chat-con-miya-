@@ -11,7 +11,7 @@ import {
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { LogOut, Trash2, Check, CheckCheck, Send, Smile } from "lucide-react";
+import { LogOut, Trash2, Check, CheckCheck, Send, Smile, Reply, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -42,6 +42,14 @@ export default function Chat() {
   const [loadingMore, setLoadingMore] = useState(false);
   const initialized = useRef(false);
 
+  // Swipe-to-reply state
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState<{ id: number; x: number } | null>(null);
+  const swipeStartX = useRef(0);
+  const swipeStartY = useRef(0);
+  const swipingId = useRef<number | null>(null);
+  const swipeVerticalLocked = useRef(false);
+
   const { data: user, isError: authError } = useGetMe({
     query: {
       retry: false,
@@ -69,8 +77,6 @@ export default function Chat() {
 
   useEffect(() => {
     if (messagesData?.messages) {
-      // Server already returns messages in ascending order (oldest first, newest last)
-      // DO NOT reverse — they are already in the correct order
       setMessages([...messagesData.messages]);
       setHasMore(messagesData.messages.length >= 50);
       if (!initialized.current) {
@@ -143,8 +149,6 @@ export default function Chat() {
       if (data.messages && data.messages.length > 0) {
         setMessages((prev) => [...data.messages, ...prev]);
         setHasMore(data.messages.length >= 50);
-        // Restore scroll position so it does not jump to top
-        // Double rAF needed on iOS: first frame lets React flush DOM, second applies scroll
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             if (container) {
@@ -199,6 +203,7 @@ export default function Chat() {
     mutation: {
       onSuccess: () => {
         setNewMessage("");
+        setReplyTo(null);
         scrollToBottom();
       },
     },
@@ -208,7 +213,12 @@ export default function Chat() {
 
   const handleSend = () => {
     if (!newMessage.trim()) return;
-    sendMessageMutation.mutate({ data: { content: newMessage.trim() } });
+    sendMessageMutation.mutate({
+      data: {
+        content: newMessage.trim(),
+        replyToId: replyTo?.id ?? null,
+      },
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -218,40 +228,70 @@ export default function Chat() {
     }
   };
 
-  const logoutMutation = useLogout({
-    mutation: {
-      onSuccess: () => {
-        queryClient.clear();
-        setLocation("/login");
-      },
-    },
-  });
+  const insertEmoji = (emoji: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const newValue = newMessage.slice(0, start) + emoji + newMessage.slice(end);
+    setNewMessage(newValue);
+    setTimeout(() => {
+      textarea.selectionStart = textarea.selectionEnd = start + emoji.length;
+      textarea.focus();
+    }, 0);
+  };
 
   const handleMessageTap = (msg: Message, isMine: boolean) => {
     if (!isMine) return;
     setSelectedMsgId((prev) => (prev === msg.id ? null : msg.id));
   };
 
-  const handleDelete = (id: number) => {
-    deleteMessageMutation.mutate({ id });
-    setSelectedMsgId(null);
+  const logoutMutation = useLogout({
+    mutation: {
+      onSuccess: () => setLocation("/login"),
+    },
+  });
+
+  // Swipe-to-reply touch handlers
+  const handleTouchStart = (msgId: number, e: React.TouchEvent) => {
+    swipeStartX.current = e.touches[0].clientX;
+    swipeStartY.current = e.touches[0].clientY;
+    swipingId.current = msgId;
+    swipeVerticalLocked.current = false;
   };
 
-  const insertEmoji = (emoji: string) => {
-    const textarea = textareaRef.current;
-    if (!textarea) {
-      setNewMessage((prev) => prev + emoji);
+  const handleTouchMove = (msgId: number, e: React.TouchEvent) => {
+    if (swipingId.current !== msgId) return;
+    if (swipeVerticalLocked.current) return;
+
+    const dx = e.touches[0].clientX - swipeStartX.current;
+    const dy = Math.abs(e.touches[0].clientY - swipeStartY.current);
+
+    // If vertical movement dominant, lock to scroll
+    if (dy > 20 && dy > Math.abs(dx)) {
+      swipeVerticalLocked.current = true;
+      setSwipeOffset(null);
       return;
     }
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const updated = newMessage.slice(0, start) + emoji + newMessage.slice(end);
-    setNewMessage(updated);
-    setShowEmojis(false);
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + emoji.length, start + emoji.length);
-    }, 0);
+
+    // Only right swipe
+    if (dx > 4) {
+      setSwipeOffset({ id: msgId, x: Math.min(dx * 0.6, 72) });
+    }
+  };
+
+  const handleTouchEnd = (msg: Message) => {
+    if (swipeOffset?.id === msg.id) {
+      if (swipeOffset.x >= 50) {
+        setReplyTo(msg);
+        setSelectedMsgId(null);
+        try { navigator.vibrate(12); } catch { /* ignore */ }
+        setTimeout(() => textareaRef.current?.focus(), 100);
+      }
+    }
+    setSwipeOffset(null);
+    swipingId.current = null;
+    swipeVerticalLocked.current = false;
   };
 
   if (!user) return null;
@@ -318,6 +358,7 @@ export default function Chat() {
                 </span>
               </div>
             )}
+
             <div className="space-y-1 pb-2">
               <AnimatePresence initial={false}>
                 {messages.map((msg, idx) => {
@@ -328,6 +369,7 @@ export default function Chat() {
                       new Date(messages[idx - 1].createdAt).getTime() >
                       5 * 60 * 1000;
                   const isSelected = selectedMsgId === msg.id;
+                  const currentSwipeX = swipeOffset?.id === msg.id ? swipeOffset.x : 0;
 
                   return (
                     <div key={msg.id} className="flex flex-col">
@@ -344,66 +386,107 @@ export default function Chat() {
                         exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
                         className={`flex relative ${isMine ? "justify-end" : "justify-start"}`}
                       >
+                        {/* Reply icon — fades in as you swipe right */}
                         <div
-                          data-message
-                          className={`max-w-[78%] px-4 py-2.5 text-[15px] leading-relaxed shadow-sm cursor-pointer select-none transition-opacity ${
-                            isMine
-                              ? "bg-primary text-primary-foreground rounded-2xl rounded-br-sm"
-                              : "bg-card text-card-foreground border border-border/50 rounded-2xl rounded-bl-sm"
-                          }`}
-                          onClick={() => handleMessageTap(msg, isMine)}
+                          className="absolute top-1/2 pointer-events-none"
+                          style={{
+                            left: isMine ? undefined : `${Math.max(currentSwipeX - 28, -4)}px`,
+                            right: isMine ? `${Math.max(currentSwipeX - 28, -4)}px` : undefined,
+                            transform: "translateY(-50%)",
+                            opacity: Math.min(currentSwipeX / 50, 1),
+                            transition: currentSwipeX === 0 ? "opacity 0.2s" : "none",
+                          }}
                         >
-                          <div className="whitespace-pre-wrap break-words">{msg.content}</div>
-
-                          {isMine && (
-                            <div className="flex justify-end mt-1 items-center gap-1 opacity-70">
-                              <span className="text-[10px]">
-                                {format(new Date(msg.createdAt), "HH:mm")}
-                              </span>
-                              {msg.isRead ? (
-                                <CheckCheck className="w-3 h-3" />
-                              ) : (
-                                <Check className="w-3 h-3" />
-                              )}
-                            </div>
-                          )}
-                          {!isMine && (
-                            <div className="flex justify-start mt-1 items-center opacity-40">
-                              <span className="text-[10px]">
-                                {format(new Date(msg.createdAt), "HH:mm")}
-                              </span>
-                            </div>
-                          )}
+                          <Reply className="w-5 h-5 text-primary" />
                         </div>
-                      </motion.div>
 
-                      {/* Delete button — shown on tap for own messages */}
-                      <AnimatePresence>
-                        {isMine && isSelected && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="flex justify-end pr-1 mt-1"
+                        {/* Swipe wrapper */}
+                        <div
+                          style={{
+                            transform: `translateX(${isMine ? -currentSwipeX : currentSwipeX}px)`,
+                            transition: currentSwipeX === 0 ? "transform 0.25s ease-out" : "none",
+                            display: "flex",
+                          }}
+                          onTouchStart={(e) => handleTouchStart(msg.id, e)}
+                          onTouchMove={(e) => handleTouchMove(msg.id, e)}
+                          onTouchEnd={() => handleTouchEnd(msg)}
+                        >
+                          <div
+                            data-message
+                            className={`max-w-[78%] px-4 py-2.5 text-[15px] leading-relaxed shadow-sm cursor-pointer select-none transition-opacity ${
+                              isMine
+                                ? "bg-primary text-primary-foreground rounded-2xl rounded-br-sm"
+                                : "bg-card text-card-foreground border border-border/50 rounded-2xl rounded-bl-sm"
+                            }`}
+                            onClick={() => handleMessageTap(msg, isMine)}
                           >
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 gap-1"
-                              onClick={() => handleDelete(msg.id)}
+                            {/* Reply preview inside bubble */}
+                            {msg.replyToId && msg.replyToContent && (
+                              <div
+                                className={`rounded-xl px-3 py-1.5 mb-2 border-l-[3px] border-primary/70 ${
+                                  isMine
+                                    ? "bg-white/10"
+                                    : "bg-muted/60"
+                                }`}
+                              >
+                                <p className={`text-[11px] font-semibold mb-0.5 ${isMine ? "text-primary-foreground/90" : "text-primary"}`}>
+                                  {msg.replyToSenderName}
+                                </p>
+                                <p className={`text-[12px] line-clamp-2 ${isMine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                                  {msg.replyToContent}
+                                </p>
+                              </div>
+                            )}
+
+                            <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+
+                            {isMine && (
+                              <div className="flex justify-end mt-1 items-center gap-1 opacity-70">
+                                <span className="text-[10px]">
+                                  {format(new Date(msg.createdAt), "HH:mm")}
+                                </span>
+                                {msg.isRead ? (
+                                  <CheckCheck className="w-3 h-3" />
+                                ) : (
+                                  <Check className="w-3 h-3" />
+                                )}
+                              </div>
+                            )}
+                            {!isMine && (
+                              <div className="flex justify-start mt-1 items-center opacity-40">
+                                <span className="text-[10px]">
+                                  {format(new Date(msg.createdAt), "HH:mm")}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Delete button — shown on tap for own messages */}
+                        <AnimatePresence>
+                          {isSelected && isMine && (
+                            <motion.button
+                              initial={{ opacity: 0, scale: 0.8 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.8 }}
+                              className="absolute -bottom-7 right-0 flex items-center gap-1 text-destructive text-xs bg-background border border-border rounded-full px-2.5 py-1 shadow-md z-10"
+                              onClick={() => {
+                                deleteMessageMutation.mutate({ id: String(msg.id) });
+                                setSelectedMsgId(null);
+                              }}
                             >
                               <Trash2 className="w-3 h-3" />
                               Eliminar
-                            </Button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                            </motion.button>
+                          )}
+                        </AnimatePresence>
+                      </motion.div>
                     </div>
                   );
                 })}
               </AnimatePresence>
+              <div ref={messagesEndRef} />
             </div>
-            <div ref={messagesEndRef} />
           </div>
         )}
       </main>
@@ -417,7 +500,7 @@ export default function Chat() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
             transition={{ duration: 0.15 }}
-            className="mx-3 mb-1 bg-card border border-border/60 rounded-2xl p-3 shadow-lg grid grid-cols-10 gap-1"
+            className="flex-none border-t border-border/40 bg-card/80 backdrop-blur-xl px-3 py-2 grid grid-cols-10 gap-0.5 max-h-40 overflow-y-auto"
           >
             {EMOJI_LIST.map((emoji) => (
               <button
@@ -429,6 +512,39 @@ export default function Chat() {
                 {emoji}
               </button>
             ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Reply Preview Bar */}
+      <AnimatePresence>
+        {replyTo && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.18 }}
+            className="flex-none overflow-hidden bg-card/60 backdrop-blur-sm border-t border-border/30 px-4 py-2"
+          >
+            <div className="flex items-center gap-2">
+              <Reply className="w-4 h-4 text-primary shrink-0" />
+              <div className="flex-1 min-w-0 border-l-2 border-primary pl-2.5">
+                <p className="text-[11px] font-semibold text-primary leading-none mb-0.5">
+                  {replyTo.senderName}
+                </p>
+                <p className="text-[12px] text-muted-foreground truncate leading-tight">
+                  {replyTo.content}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground rounded-full"
+                onClick={() => setReplyTo(null)}
+              >
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
