@@ -55,10 +55,10 @@ export default function Login() {
               <Heart className="w-6 h-6 fill-primary/20" />
             </div>
             <CardTitle className="text-2xl font-medium tracking-tight text-foreground">
-              Bienvenido de nuevo
+              Chat {"<3"}
             </CardTitle>
             <CardDescription className="text-muted-foreground text-base mt-2">
-              Nuestro espacio privado.
+              Aquí podremos hablar libremente
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -70,15 +70,15 @@ export default function Login() {
                 <div className="grid grid-cols-2 gap-3">
                   <Button
                     type="button"
-                    variant={username === "yo" ? "default" : "outline"}
+                    variant={username === "marc" ? "default" : "outline"}
                     className={`h-12 text-base transition-all ${
-                      username === "yo"
+                      username === "marc"
                         ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
                         : "bg-transparent hover:bg-primary/5"
                     }`}
-                    onClick={() => setUsername("yo")}
+                    onClick={() => setUsername("marc")}
                   >
-                    Yo
+                    Marc
                   </Button>
                   <Button
                     type="button"
