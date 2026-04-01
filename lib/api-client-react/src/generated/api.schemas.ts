@@ -27,6 +27,9 @@ export interface Message {
   content: string;
   createdAt: string;
   isRead: boolean;
+  replyToId?: number | null;
+  replyToContent?: string | null;
+  replyToSenderName?: string | null;
 }
 
 export interface MessageList {
@@ -36,6 +39,7 @@ export interface MessageList {
 
 export interface SendMessageBody {
   content: string;
+  replyToId?: number | null;
 }
 
 export interface SuccessResponse {
