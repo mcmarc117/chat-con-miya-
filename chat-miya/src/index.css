@@ -111,7 +111,6 @@
 }
 
 .dark {
-  /* Minimal dark mode as fallback, though app is light-themed primarily */
   --background: 345 30% 10%;
   --foreground: 345 20% 90%;
   --card: 345 30% 12%;
@@ -138,6 +137,11 @@
 @layer base {
   * {
     @apply border-border;
+  }
+  /* Prevent Safari iOS pull-to-refresh from triggering a page reload */
+  html, body {
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
   }
   body {
     @apply font-sans antialiased bg-background text-foreground;
