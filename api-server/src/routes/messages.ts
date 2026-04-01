@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, messagesTable, usersTable } from "@workspace/db";
 import { eq, desc, isNull, lt, and, ne } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { alias } from "drizzle-orm";
 import { SendMessageBody, GetMessagesQueryParams, DeleteMessageParams } from "@workspace/api-zod";
 import { requireAuth } from "../lib/session";
 import { broadcastMessage, addSSEClient, removeSSEClient } from "../lib/sse";
