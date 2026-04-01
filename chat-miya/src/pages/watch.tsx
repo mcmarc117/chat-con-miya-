@@ -13,13 +13,6 @@ import { format } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Message } from "@workspace/api-client-react/src/generated/api.schemas";
 
-declare global {
-  interface Window {
-    YT: any;
-    onYouTubeIframeAPIReady: () => void;
-  }
-}
-
 interface WatchState {
   url: string;
   playing: boolean;
@@ -46,24 +39,31 @@ function isDirectVideo(url: string): boolean {
   return /\.(mp4|webm|ogg|mov)(\?|$)/i.test(url);
 }
 
+function ytCmd(iframe: HTMLIFrameElement | null, func: string, args: unknown[] = []) {
+  if (!iframe?.contentWindow) return;
+  iframe.contentWindow.postMessage(
+    JSON.stringify({ event: "command", func, args }),
+    "*"
+  );
+}
+
 export default function Watch() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const ytPlayerRef = useRef<any>(null);
+  const ytIframeRef = useRef<HTMLIFrameElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const stateRef = useRef<WatchState | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const suppressSend = useRef(false);
+  const suppressRef = useRef(false);
+  const currentTimeRef = useRef(0); // track YT currentTime from postMessage events
   const initialized = useRef(false);
 
   const [newMessage, setNewMessage] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [videoUrl, setVideoUrl] = useState("");
   const [inputUrl, setInputUrl] = useState("");
-  const [ytApiReady, setYtApiReady] = useState(false);
-  const [ytPlayerReady, setYtPlayerReady] = useState(false);
   const [pendingSync, setPendingSync] = useState(false);
 
   const { data: user, isError: authError } = useGetMe({
@@ -77,59 +77,56 @@ export default function Watch() {
   const ytId = videoUrl ? getYouTubeId(videoUrl) : null;
   const isDirect = videoUrl ? isDirectVideo(videoUrl) : false;
 
-  // Load YouTube IFrame API script once
+  // Listen to postMessage events from YouTube iframe (both Marc and Miya)
   useEffect(() => {
-    if (window.YT?.Player) {
-      setYtApiReady(true);
-      return;
-    }
-    window.onYouTubeIframeAPIReady = () => setYtApiReady(true);
-    if (!document.getElementById("yt-api-script")) {
-      const s = document.createElement("script");
-      s.id = "yt-api-script";
-      s.src = "https://www.youtube.com/iframe_api";
-      document.head.appendChild(s);
-    }
-  }, []);
+    const handler = (e: MessageEvent) => {
+      if (typeof e.data !== "string") return;
+      let data: any;
+      try { data = JSON.parse(e.data); } catch { return; }
 
-  // Create / recreate YT.Player when ytId or API ready
+      // Track currentTime from infoDelivery
+      if (data.event === "infoDelivery" && typeof data.info?.currentTime === "number") {
+        currentTimeRef.current = data.info.currentTime;
+      }
+
+      // Marc: detect play/pause and broadcast state
+      if (isMarc && !suppressRef.current && data.event === "onStateChange") {
+        // info: 1=playing, 2=paused
+        if (data.info === 1 || data.info === 2) {
+          const playing = data.info === 1;
+          postWatchState(videoUrl, playing, currentTimeRef.current);
+        }
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [isMarc, videoUrl]);
+
+  // Marc: heartbeat every 5s while playing
   useEffect(() => {
-    if (!ytApiReady || !ytId) return;
-    setYtPlayerReady(false);
-    if (ytPlayerRef.current?.destroy) {
-      ytPlayerRef.current.destroy();
-      ytPlayerRef.current = null;
-    }
-    ytPlayerRef.current = new window.YT.Player("yt-player-container", {
-      videoId: ytId,
-      width: "100%",
-      height: "100%",
-      playerVars: {
-        controls: 1,
-        rel: 0,
-        modestbranding: 1,
-        playsinline: 1,
-      },
-      events: {
-        onReady: () => {
-          setYtPlayerReady(true);
-          // Apply pending state
-          if (stateRef.current?.url) {
-            applyWatchState(stateRef.current);
-          }
-        },
-        onStateChange: (e: any) => {
-          if (!isMarc || suppressSend.current) return;
-          // 1=playing, 2=paused
-          if (e.data === 1 || e.data === 2) {
-            const playing = e.data === 1;
-            const currentTime = ytPlayerRef.current?.getCurrentTime?.() ?? 0;
-            postWatchState(videoUrl, playing, currentTime);
-          }
-        },
-      },
-    });
-  }, [ytApiReady, ytId]);
+    if (!isMarc) return;
+    heartbeatRef.current = setInterval(() => {
+      const video = videoRef.current;
+      if (ytIframeRef.current) {
+        // Request current info from YouTube iframe
+        ytIframeRef.current.contentWindow?.postMessage(
+          JSON.stringify({ event: "listening" }),
+          "*"
+        );
+        // Send heartbeat with last known time (only if playing)
+        if (stateRef.current?.playing) {
+          const elapsed = (Date.now() - (stateRef.current.updatedAt ?? 0)) / 1000;
+          const approxTime = (stateRef.current.currentTime ?? 0) + elapsed;
+          postWatchState(videoUrl, true, approxTime);
+        }
+      } else if (video && !video.paused) {
+        postWatchState(videoUrl, true, video.currentTime);
+      }
+    }, 5000);
+    return () => {
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+    };
+  }, [isMarc, videoUrl]);
 
   // Load initial watch state
   useEffect(() => {
@@ -146,7 +143,7 @@ export default function Watch() {
       });
   }, [user]);
 
-  // Load messages
+  // Messages
   const queryKey = getGetMessagesQueryKey({ limit: 50 });
   const { data: messagesData } = useGetMessages(
     { limit: 50 },
@@ -162,7 +159,7 @@ export default function Watch() {
     }
   }, [messagesData]);
 
-  // SSE for messages and watch-state events
+  // SSE
   useEffect(() => {
     if (!user) return;
     const sse = new EventSource("/api/messages/sse", { withCredentials: true });
@@ -173,12 +170,10 @@ export default function Watch() {
       queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey() });
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
     });
-
     sse.addEventListener("delete", (e) => {
       const { id } = JSON.parse(e.data);
       setMessages((prev) => prev.filter((m) => m.id !== id));
     });
-
     sse.addEventListener("watch-state", (e) => {
       const state: WatchState = JSON.parse(e.data);
       stateRef.current = state;
@@ -193,57 +188,40 @@ export default function Watch() {
     });
 
     return () => sse.close();
-  }, [user, videoUrl, isMarc, ytPlayerReady]);
-
-  // Marc heartbeat: send currentTime every 5s while video is playing
-  useEffect(() => {
-    if (!isMarc) return;
-    heartbeatRef.current = setInterval(() => {
-      const player = ytPlayerRef.current;
-      const video = videoRef.current;
-      if (player?.getPlayerState?.() === 1) {
-        postWatchState(videoUrl, true, player.getCurrentTime() ?? 0);
-      } else if (video && !video.paused) {
-        postWatchState(videoUrl, true, video.currentTime);
-      }
-    }, 5000);
-    return () => {
-      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-    };
-  }, [isMarc, videoUrl]);
+  }, [user, videoUrl, isMarc]);
 
   function applyWatchState(state: WatchState) {
     if (!state.url) return;
     const elapsed = (Date.now() - state.updatedAt) / 1000;
     const targetTime = state.currentTime + (state.playing ? elapsed : 0);
 
-    const player = ytPlayerRef.current;
+    const iframe = ytIframeRef.current;
     const video = videoRef.current;
 
-    if (player?.seekTo) {
-      suppressSend.current = true;
-      player.seekTo(targetTime, true);
-      if (state.playing) player.playVideo();
-      else player.pauseVideo();
-      setTimeout(() => { suppressSend.current = false; }, 1500);
+    if (iframe) {
+      suppressRef.current = true;
+      ytCmd(iframe, "seekTo", [targetTime, true]);
+      if (state.playing) ytCmd(iframe, "playVideo");
+      else ytCmd(iframe, "pauseVideo");
+      setTimeout(() => { suppressRef.current = false; }, 1500);
     } else if (video) {
       video.currentTime = targetTime;
-      if (state.playing) {
-        video.play().catch(() => setPendingSync(true));
-      } else {
-        video.pause();
-      }
+      if (state.playing) video.play().catch(() => setPendingSync(true));
+      else video.pause();
     } else {
       setPendingSync(true);
     }
   }
 
   async function postWatchState(url: string, playing: boolean, currentTime: number) {
+    if (!url) return;
+    const state = { url, playing, currentTime };
+    stateRef.current = { ...state, updatedAt: Date.now() };
     await fetch("/api/watch/state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ url, playing, currentTime }),
+      body: JSON.stringify(state),
     });
   }
 
@@ -259,15 +237,21 @@ export default function Watch() {
     setPendingSync(false);
   }
 
-  const sendMessageMutation = useSendMessage();
+  function handleMarcSync() {
+    const iframe = ytIframeRef.current;
+    const video = videoRef.current;
+    const currentTime = iframe ? currentTimeRef.current : (video?.currentTime ?? 0);
+    const playing = video ? !video.paused : (stateRef.current?.playing ?? false);
+    postWatchState(videoUrl, playing, currentTime);
+  }
 
+  const sendMessageMutation = useSendMessage();
   function handleSend() {
     if (!newMessage.trim()) return;
     sendMessageMutation.mutate({ data: { content: newMessage.trim() } });
     setNewMessage("");
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   }
-
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -280,55 +264,34 @@ export default function Watch() {
   return (
     <div className="flex flex-col h-[100dvh] bg-background overflow-hidden">
       {/* Header */}
-      <header className="flex-none h-12 border-b border-border/40 bg-card/50 backdrop-blur-md flex items-center gap-2 px-3 z-10 shrink-0">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0"
-          onClick={() => setLocation("/")}
-        >
+      <header className="flex-none h-12 border-b border-border/40 bg-card/50 backdrop-blur-md flex items-center gap-2 px-3 z-10">
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setLocation("/")}>
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <Film className="w-4 h-4 text-primary shrink-0" />
         <span className="font-medium text-sm flex-1">Watch Party</span>
         {!isMarc && pendingSync && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs gap-1.5 border-primary/40 text-primary"
-            onClick={handleSyncNow}
-          >
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 border-primary/40 text-primary" onClick={handleSyncNow}>
             <RefreshCw className="w-3 h-3" />
             Sincronizar
           </Button>
         )}
         {isMarc && videoUrl && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs gap-1.5"
-            onClick={() => {
-              const player = ytPlayerRef.current;
-              const video = videoRef.current;
-              const currentTime = player?.getCurrentTime?.() ?? video?.currentTime ?? 0;
-              const playing = player?.getPlayerState?.() === 1 ?? (video ? !video.paused : false);
-              postWatchState(videoUrl, playing, currentTime);
-            }}
-          >
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={handleMarcSync}>
             <RefreshCw className="w-3 h-3" />
             Sync
           </Button>
         )}
       </header>
 
-      {/* Video Player — 42% of screen */}
-      <div className="flex-none bg-black overflow-hidden" style={{ height: "42svh" }}>
+      {/* Video Player — 42% height */}
+      <div className="flex-none bg-black" style={{ height: "42vh" }}>
         {!videoUrl ? (
           <div className="w-full h-full flex flex-col items-center justify-center gap-4 px-6">
             {isMarc ? (
               <>
                 <p className="text-sm text-white/60 text-center">
-                  Pega un enlace de YouTube o video directo
+                  Pega un enlace de YouTube o video
                 </p>
                 <div className="flex gap-2 w-full max-w-sm">
                   <Input
@@ -348,7 +311,21 @@ export default function Watch() {
             )}
           </div>
         ) : ytId ? (
-          <div id="yt-player-container" className="w-full h-full" />
+          <iframe
+            key={ytId}
+            ref={ytIframeRef}
+            className="w-full h-full border-0"
+            src={`https://www.youtube-nocookie.com/embed/${ytId}?enablejsapi=1&rel=0&modestbranding=1&playsinline=1`}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            onLoad={() => {
+              // Enable event messages from YouTube
+              ytIframeRef.current?.contentWindow?.postMessage(
+                JSON.stringify({ event: "listening" }),
+                "*"
+              );
+            }}
+          />
         ) : isDirect ? (
           <video
             ref={videoRef}
@@ -357,30 +334,15 @@ export default function Watch() {
             src={videoUrl}
             controls={isMarc}
             playsInline
-            onPlay={
-              isMarc
-                ? () => postWatchState(videoUrl, true, videoRef.current?.currentTime ?? 0)
-                : undefined
-            }
-            onPause={
-              isMarc
-                ? () => postWatchState(videoUrl, false, videoRef.current?.currentTime ?? 0)
-                : undefined
-            }
-            onSeeked={
-              isMarc
-                ? () =>
-                    postWatchState(
-                      videoUrl,
-                      !videoRef.current?.paused,
-                      videoRef.current?.currentTime ?? 0
-                    )
-                : undefined
-            }
+            onPlay={isMarc ? () => postWatchState(videoUrl, true, videoRef.current?.currentTime ?? 0) : undefined}
+            onPause={isMarc ? () => postWatchState(videoUrl, false, videoRef.current?.currentTime ?? 0) : undefined}
+            onSeeked={isMarc ? () => postWatchState(videoUrl, !videoRef.current?.paused, videoRef.current?.currentTime ?? 0) : undefined}
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-3 px-6">
-            <p className="text-sm text-white/40 text-center">URL no reconocida como YouTube o video</p>
+            <p className="text-sm text-white/40 text-center">
+              Enlace no reconocido. Usa YouTube o un link directo a .mp4
+            </p>
             {isMarc && (
               <div className="flex gap-2 w-full max-w-sm">
                 <Input
@@ -397,9 +359,9 @@ export default function Watch() {
         )}
       </div>
 
-      {/* Marc: change video bar (only when video is loaded) */}
+      {/* Marc: change video bar */}
       {isMarc && videoUrl && (
-        <div className="flex-none px-3 py-2 bg-muted/20 border-b border-border/30 flex gap-2 shrink-0">
+        <div className="flex-none px-3 py-2 bg-muted/20 border-b border-border/30 flex gap-2">
           <Input
             value={inputUrl}
             onChange={(e) => setInputUrl(e.target.value)}
@@ -418,13 +380,10 @@ export default function Watch() {
         </div>
       )}
 
-      {/* Chat Messages */}
-      <div
-        ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-0"
-      >
+      {/* Messages */}
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-0">
         {messages.length === 0 && (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex items-center justify-center h-20">
             <p className="text-xs text-muted-foreground/50">Hablen mientras ven el video</p>
           </div>
         )}
@@ -465,7 +424,7 @@ export default function Watch() {
       </div>
 
       {/* Input */}
-      <footer className="flex-none p-2 bg-background/80 backdrop-blur-xl border-t border-border/50 shrink-0">
+      <footer className="flex-none p-2 bg-background/80 backdrop-blur-xl border-t border-border/50">
         <div className="flex items-center gap-2 bg-card border border-border/60 rounded-3xl px-4 py-1 shadow-sm">
           <input
             value={newMessage}
