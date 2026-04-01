@@ -1,5 +1,5 @@
 [build]
-buildCommand = "npm install -g pnpm@10 && pnpm install && BASE_PATH=/ NODE_ENV=production pnpm --filter @workspace/chat-miya run build && pnpm --filter @workspace/api-server run build"
+buildCommand = "BASE_PATH=/ NODE_ENV=production pnpm --filter @workspace/chat-miya run build && pnpm --filter @workspace/api-server run build"
 
 [deploy]
 startCommand = "NODE_ENV=production node api-server/dist/index.mjs"
