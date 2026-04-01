@@ -11,20 +11,32 @@ import {
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { LogOut, Trash2, Check, CheckCheck, Send } from "lucide-react";
+import { LogOut, Trash2, Check, CheckCheck, Send, Smile } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import type { Message } from "@workspace/api-client-react/src/generated/api.schemas";
 
+const EMOJI_LIST = [
+  "❤️","🥰","😍","😘","💋","💕","💞","💓","💗","💖",
+  "🫶","🤗","😊","🥹","😁","😂","🤣","😅","😆","🥲",
+  "😴","🤔","😎","🤩","😇","🙈","🙉","🙊","🫠","🥺",
+  "😭","😩","😤","🤯","😱","🤭","🫡","👀","✨","🌹",
+  "🌸","🌺","🌻","🍓","🍒","🍑","🧁","🎂","🎁","🎀",
+  "🐱","🐶","🐰","🦊","🐻","🐼","🦄","🌈","⭐","🌙",
+];
+
 export default function Chat() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
   const [newMessage, setNewMessage] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedMsgId, setSelectedMsgId] = useState<number | null>(null);
+  const [showEmojis, setShowEmojis] = useState(false);
   const initialized = useRef(false);
 
   const { data: user, isError: authError } = useGetMe({
@@ -109,6 +121,19 @@ export default function Chat() {
     return () => sse.close();
   }, [user, queryClient]);
 
+  // Close emoji picker on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+        setShowEmojis(false);
+      }
+    };
+    if (showEmojis) {
+      document.addEventListener("mousedown", handleClick);
+    }
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showEmojis]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -155,9 +180,26 @@ export default function Chat() {
     setSelectedMsgId(null);
   };
 
+  const insertEmoji = (emoji: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setNewMessage((prev) => prev + emoji);
+      return;
+    }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const updated = newMessage.slice(0, start) + emoji + newMessage.slice(end);
+    setNewMessage(updated);
+    setShowEmojis(false);
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + emoji.length, start + emoji.length);
+    }, 0);
+  };
+
   if (!user) return null;
 
-  const partnerName = user.username === "yo" ? "Miya" : "Yo";
+  const partnerName = user.username === "marc" ? "Miya" : "Marc";
 
   return (
     <div
@@ -177,7 +219,7 @@ export default function Chat() {
           </div>
           <div>
             <h1 className="font-medium text-foreground">{partnerName}</h1>
-            <p className="text-xs text-muted-foreground">Nuestro espacio privado</p>
+            <p className="text-xs text-muted-foreground">Aquí podremos hablar libremente</p>
           </div>
         </div>
         <Button
@@ -292,10 +334,47 @@ export default function Chat() {
         )}
       </main>
 
+      {/* Emoji Picker */}
+      <AnimatePresence>
+        {showEmojis && (
+          <motion.div
+            ref={emojiPickerRef}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.15 }}
+            className="mx-3 mb-1 bg-card border border-border/60 rounded-2xl p-3 shadow-lg grid grid-cols-10 gap-1"
+          >
+            {EMOJI_LIST.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                className="text-xl h-9 w-9 flex items-center justify-center rounded-xl hover:bg-primary/10 active:scale-90 transition-transform"
+                onClick={() => insertEmoji(emoji)}
+              >
+                {emoji}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Input Area */}
       <footer className="flex-none p-3 bg-background/80 backdrop-blur-xl border-t border-border/50 pb-safe">
         <div className="flex items-end gap-2 bg-card border border-border/60 rounded-3xl p-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/30 transition-all">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className={`h-10 w-10 rounded-full shrink-0 transition-colors mb-0.5 ml-0.5 ${
+              showEmojis ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-primary hover:bg-primary/10"
+            }`}
+            onClick={() => setShowEmojis((v) => !v)}
+          >
+            <Smile className="w-5 h-5" />
+          </Button>
           <Textarea
+            ref={textareaRef}
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             onKeyDown={handleKeyDown}
