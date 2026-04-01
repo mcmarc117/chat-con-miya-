@@ -163,6 +163,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
+        "403":
+          description: Forbidden
+
+  /messages/sse:
+    get:
+      operationId: messagesSSE
+      tags: [messages]
+      summary: SSE stream for real-time messages
+      responses:
+        "200":
+          description: SSE stream
 
 components:
   schemas:
@@ -215,6 +226,15 @@ components:
           format: date-time
         isRead:
           type: boolean
+        replyToId:
+          type: integer
+          nullable: true
+        replyToContent:
+          type: string
+          nullable: true
+        replyToSenderName:
+          type: string
+          nullable: true
       required:
         - id
         - senderId
@@ -241,6 +261,9 @@ components:
       properties:
         content:
           type: string
+        replyToId:
+          type: integer
+          nullable: true
       required:
         - content
 
