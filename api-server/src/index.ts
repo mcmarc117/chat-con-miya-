@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { seedUsers } from "./lib/seed";
+import { pool } from "@workspace/db";
 
 // Catch any unhandled errors and print them before exiting
 process.on("uncaughtException", (err) => {
@@ -27,9 +28,25 @@ if (Number.isNaN(port) || port <= 0) {
   process.exit(1);
 }
 
-app.listen(port, () => {
-  logger.info({ port }, "Server listening");
-  seedUsers().catch((err) => {
-    logger.error({ err }, "Error seeding users");
+async function runMigrations() {
+  logger.info("Running database migrations...");
+  await pool.query(`
+    ALTER TABLE messages
+    ADD COLUMN IF NOT EXISTS reply_to_id INTEGER
+  `);
+  logger.info("Migrations complete.");
+}
+
+runMigrations()
+  .then(() => {
+    app.listen(port, () => {
+      logger.info({ port }, "Server listening");
+      seedUsers().catch((err) => {
+        logger.error({ err }, "Error seeding users");
+      });
+    });
+  })
+  .catch((err) => {
+    logger.error({ err }, "Migration failed, server not started");
+    process.exit(1);
   });
-});
