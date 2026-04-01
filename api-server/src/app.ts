@@ -39,8 +39,8 @@ if (process.env.NODE_ENV === "production") {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const frontendPath = path.resolve(__dirname, "../../chat-miya/dist/public");
   app.use(express.static(frontendPath));
-  // Express 5 requires named wildcard — use "(.*)" instead of "*"
-  app.get("(.*)", (_req, res) => {
+  // Use a JS RegExp to bypass Express 5 path-to-regexp parsing for catch-all SPA route
+  app.get(/.*/, (_req, res) => {
     res.sendFile(path.join(frontendPath, "index.html"));
   });
 }
