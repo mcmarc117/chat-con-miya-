@@ -35,6 +35,13 @@ function getYouTubeId(url: string): string | null {
   return null;
 }
 
+function getNetuEmbedUrl(url: string): string | null {
+  if (/netu\.tv\/e\//.test(url)) return url;
+  const m = url.match(/netu\.tv\/v\/([a-zA-Z0-9_-]+)/);
+  if (m) return `https://netu.tv/e/${m[1]}`;
+  return null;
+}
+
 function isDirectVideo(url: string): boolean {
   return /\.(mp4|webm|ogg|mov)(\?|$)/i.test(url);
 }
@@ -57,7 +64,7 @@ export default function Watch() {
   const stateRef = useRef<WatchState | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const suppressRef = useRef(false);
-  const currentTimeRef = useRef(0); // track YT currentTime from postMessage events
+  const currentTimeRef = useRef(0);
   const initialized = useRef(false);
 
   const [newMessage, setNewMessage] = useState("");
@@ -75,23 +82,21 @@ export default function Watch() {
 
   const isMarc = user?.username === "marc";
   const ytId = videoUrl ? getYouTubeId(videoUrl) : null;
-  const isDirect = videoUrl ? isDirectVideo(videoUrl) : false;
+  const netuEmbedUrl = !ytId && videoUrl ? getNetuEmbedUrl(videoUrl) : null;
+  const isDirect = !ytId && !netuEmbedUrl && videoUrl ? isDirectVideo(videoUrl) : false;
 
   // Listen to postMessage events from YouTube iframe (both Marc and Miya)
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (typeof e.data !== "string") return;
-      let data: any;
+      let data: Record<string, unknown>;
       try { data = JSON.parse(e.data); } catch { return; }
 
-      // Track currentTime from infoDelivery
-      if (data.event === "infoDelivery" && typeof data.info?.currentTime === "number") {
-        currentTimeRef.current = data.info.currentTime;
+      if (data.event === "infoDelivery" && typeof (data.info as Record<string, unknown>)?.currentTime === "number") {
+        currentTimeRef.current = (data.info as Record<string, unknown>).currentTime as number;
       }
 
-      // Marc: detect play/pause and broadcast state
       if (isMarc && !suppressRef.current && data.event === "onStateChange") {
-        // info: 1=playing, 2=paused
         if (data.info === 1 || data.info === 2) {
           const playing = data.info === 1;
           postWatchState(videoUrl, playing, currentTimeRef.current);
@@ -108,12 +113,10 @@ export default function Watch() {
     heartbeatRef.current = setInterval(() => {
       const video = videoRef.current;
       if (ytIframeRef.current) {
-        // Request current info from YouTube iframe
         ytIframeRef.current.contentWindow?.postMessage(
           JSON.stringify({ event: "listening" }),
           "*"
         );
-        // Send heartbeat with last known time (only if playing)
         if (stateRef.current?.playing) {
           const elapsed = (Date.now() - (stateRef.current.updatedAt ?? 0)) / 1000;
           const approxTime = (stateRef.current.currentTime ?? 0) + elapsed;
@@ -291,13 +294,13 @@ export default function Watch() {
             {isMarc ? (
               <>
                 <p className="text-sm text-white/60 text-center">
-                  Pega un enlace de YouTube o video
+                  Pega un enlace de YouTube, Netu o video directo
                 </p>
                 <div className="flex gap-2 w-full max-w-sm">
                   <Input
                     value={inputUrl}
                     onChange={(e) => setInputUrl(e.target.value)}
-                    placeholder="https://youtube.com/watch?v=..."
+                    placeholder="YouTube, Netu o .mp4..."
                     className="h-9 text-sm bg-white/10 border-white/20 text-white placeholder:text-white/30 flex-1"
                     onKeyDown={(e) => e.key === "Enter" && handleLoadVideo()}
                   />
@@ -319,12 +322,19 @@ export default function Watch() {
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
             allowFullScreen
             onLoad={() => {
-              // Enable event messages from YouTube
               ytIframeRef.current?.contentWindow?.postMessage(
                 JSON.stringify({ event: "listening" }),
                 "*"
               );
             }}
+          />
+        ) : netuEmbedUrl ? (
+          <iframe
+            key={netuEmbedUrl}
+            className="w-full h-full border-0"
+            src={netuEmbedUrl}
+            allow="autoplay; fullscreen; picture-in-picture"
+            allowFullScreen
           />
         ) : isDirect ? (
           <video
@@ -341,7 +351,7 @@ export default function Watch() {
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-3 px-6">
             <p className="text-sm text-white/40 text-center">
-              Enlace no reconocido. Usa YouTube o un link directo a .mp4
+              Enlace no reconocido. Usa YouTube, Netu o un link directo a .mp4
             </p>
             {isMarc && (
               <div className="flex gap-2 w-full max-w-sm">
@@ -365,7 +375,7 @@ export default function Watch() {
           <Input
             value={inputUrl}
             onChange={(e) => setInputUrl(e.target.value)}
-            placeholder="Cambiar video..."
+            placeholder="YouTube, Netu o .mp4..."
             className="h-8 text-xs flex-1"
             onKeyDown={(e) => e.key === "Enter" && handleLoadVideo()}
           />
