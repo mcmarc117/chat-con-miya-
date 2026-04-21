@@ -81,7 +81,7 @@ export default function Watch() {
 
   const isMarc = user?.username === "marc";
   const ytId = videoUrl ? getYouTubeId(videoUrl) : null;
-  const streamtapeEmbedUrl = !ytId && videoUrl ? getNetuEmbedUrl(videoUrl) : null;
+  const streamtapeEmbedUrl = !ytId && videoUrl ? getStreamtapeEmbedUrl(videoUrl) : null;
   const isDirect = !ytId && !streamtapeEmbedUrl && videoUrl ? isDirectVideo(videoUrl) : false;
 
   // Listen to postMessage events from YouTube iframe (both Marc and Miya)
