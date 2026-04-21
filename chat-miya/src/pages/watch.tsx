@@ -35,9 +35,9 @@ function getYouTubeId(url: string): string | null {
   return null;
 }
 
-function getStreamtapeEmbedUrl(url: string): string | null {
-  const m = url.match(/streamtape\.com\/v\/([a-zA-Z0-9_-]+)/);
-  if (m) return `https://streamtape.com/e/${m[1]}`;
+function getVimeoEmbedUrl(url: string): string | null {
+  const m = url.match(/vimeo\.com\/(\d+)/);
+  if (m) return `https://player.vimeo.com/video/${m[1]}`;
   return null;
 }
 
@@ -81,8 +81,8 @@ export default function Watch() {
 
   const isMarc = user?.username === "marc";
   const ytId = videoUrl ? getYouTubeId(videoUrl) : null;
-  const streamtapeEmbedUrl = !ytId && videoUrl ? getStreamtapeEmbedUrl(videoUrl) : null;
-  const isDirect = !ytId && !streamtapeEmbedUrl && videoUrl ? isDirectVideo(videoUrl) : false;
+  const vimeoEmbedUrl = !ytId && videoUrl ? getVimeoEmbedUrl(videoUrl) : null;
+  const isDirect = !ytId && !vimeoEmbedUrl && videoUrl ? isDirectVideo(videoUrl) : false;
 
   // Listen to postMessage events from YouTube iframe (both Marc and Miya)
   useEffect(() => {
@@ -293,13 +293,13 @@ export default function Watch() {
             {isMarc ? (
               <>
                 <p className="text-sm text-white/60 text-center">
-                  Pega un enlace de YouTube, Streamtape o video directo
+                  Pega un enlace de YouTube, Vimeo o video directo
                 </p>
                 <div className="flex gap-2 w-full max-w-sm">
                   <Input
                     value={inputUrl}
                     onChange={(e) => setInputUrl(e.target.value)}
-                    placeholder="YouTube, Streamtape o .mp4..."
+                    placeholder="YouTube, Vimeo o .mp4..."
                     className="h-9 text-sm bg-white/10 border-white/20 text-white placeholder:text-white/30 flex-1"
                     onKeyDown={(e) => e.key === "Enter" && handleLoadVideo()}
                   />
@@ -327,11 +327,11 @@ export default function Watch() {
               );
             }}
           />
-        ) : streamtapeEmbedUrl ? (
+        ) : vimeoEmbedUrl ? (
           <iframe
-            key={streamtapeEmbedUrl}
+            key={vimeoEmbedUrl}
             className="w-full h-full border-0"
-            src={streamtapeEmbedUrl}
+            src={vimeoEmbedUrl}
             allow="autoplay; fullscreen; picture-in-picture"
             allowFullScreen
           />
@@ -350,7 +350,7 @@ export default function Watch() {
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-3 px-6">
             <p className="text-sm text-white/40 text-center">
-              Enlace no reconocido. Usa YouTube, Streamtape o un link directo a .mp4
+              Enlace no reconocido. Usa YouTube, Vimeo o un link directo a .mp4
             </p>
             {isMarc && (
               <div className="flex gap-2 w-full max-w-sm">
@@ -374,7 +374,7 @@ export default function Watch() {
           <Input
             value={inputUrl}
             onChange={(e) => setInputUrl(e.target.value)}
-            placeholder="YouTube, Streamtape o .mp4..."
+            placeholder="YouTube, Vimeo o .mp4..."
             className="h-8 text-xs flex-1"
             onKeyDown={(e) => e.key === "Enter" && handleLoadVideo()}
           />
