@@ -37,8 +37,11 @@ function getYouTubeId(url: string): string | null {
 
 function getNetuEmbedUrl(url: string): string | null {
   if (/netu\.tv\/e\//.test(url)) return url;
-  const m = url.match(/netu\.tv\/v\/([a-zA-Z0-9_-]+)/);
-  if (m) return `https://netu.tv/e/${m[1]}`;
+  if (/waaw\.ac\/e\//.test(url)) return url;
+  const m1 = url.match(/netu\.tv\/v\/([a-zA-Z0-9_-]+)/);
+  if (m1) return `https://netu.tv/e/${m1[1]}`;
+  const m2 = url.match(/waaw\.ac\/(?:f|v)\/([a-zA-Z0-9_-]+)/);
+  if (m2) return `https://waaw.ac/e/${m2[1]}`;
   return null;
 }
 
