@@ -35,13 +35,9 @@ function getYouTubeId(url: string): string | null {
   return null;
 }
 
-function getNetuEmbedUrl(url: string): string | null {
-  if (/netu\.tv\/e\//.test(url)) return url;
-  if (/waaw\.ac\/e\//.test(url)) return url;
-  const m1 = url.match(/netu\.tv\/v\/([a-zA-Z0-9_-]+)/);
-  if (m1) return `https://netu.tv/e/${m1[1]}`;
-  const m2 = url.match(/waaw\.ac\/(?:f|v)\/([a-zA-Z0-9_-]+)/);
-  if (m2) return `https://waaw.ac/e/${m2[1]}`;
+function getStreamtapeEmbedUrl(url: string): string | null {
+  const m = url.match(/streamtape\.com\/v\/([a-zA-Z0-9_-]+)/);
+  if (m) return `https://streamtape.com/e/${m[1]}`;
   return null;
 }
 
@@ -85,8 +81,8 @@ export default function Watch() {
 
   const isMarc = user?.username === "marc";
   const ytId = videoUrl ? getYouTubeId(videoUrl) : null;
-  const netuEmbedUrl = !ytId && videoUrl ? getNetuEmbedUrl(videoUrl) : null;
-  const isDirect = !ytId && !netuEmbedUrl && videoUrl ? isDirectVideo(videoUrl) : false;
+  const streamtapeEmbedUrl = !ytId && videoUrl ? getNetuEmbedUrl(videoUrl) : null;
+  const isDirect = !ytId && !streamtapeEmbedUrl && videoUrl ? isDirectVideo(videoUrl) : false;
 
   // Listen to postMessage events from YouTube iframe (both Marc and Miya)
   useEffect(() => {
@@ -297,13 +293,13 @@ export default function Watch() {
             {isMarc ? (
               <>
                 <p className="text-sm text-white/60 text-center">
-                  Pega un enlace de YouTube, Netu o video directo
+                  Pega un enlace de YouTube, Streamtape o video directo
                 </p>
                 <div className="flex gap-2 w-full max-w-sm">
                   <Input
                     value={inputUrl}
                     onChange={(e) => setInputUrl(e.target.value)}
-                    placeholder="YouTube, Netu o .mp4..."
+                    placeholder="YouTube, Streamtape o .mp4..."
                     className="h-9 text-sm bg-white/10 border-white/20 text-white placeholder:text-white/30 flex-1"
                     onKeyDown={(e) => e.key === "Enter" && handleLoadVideo()}
                   />
@@ -331,11 +327,11 @@ export default function Watch() {
               );
             }}
           />
-        ) : netuEmbedUrl ? (
+        ) : streamtapeEmbedUrl ? (
           <iframe
-            key={netuEmbedUrl}
+            key={streamtapeEmbedUrl}
             className="w-full h-full border-0"
-            src={netuEmbedUrl}
+            src={streamtapeEmbedUrl}
             allow="autoplay; fullscreen; picture-in-picture"
             allowFullScreen
           />
@@ -354,7 +350,7 @@ export default function Watch() {
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-3 px-6">
             <p className="text-sm text-white/40 text-center">
-              Enlace no reconocido. Usa YouTube, Netu o un link directo a .mp4
+              Enlace no reconocido. Usa YouTube, Streamtape o un link directo a .mp4
             </p>
             {isMarc && (
               <div className="flex gap-2 w-full max-w-sm">
@@ -378,7 +374,7 @@ export default function Watch() {
           <Input
             value={inputUrl}
             onChange={(e) => setInputUrl(e.target.value)}
-            placeholder="YouTube, Netu o .mp4..."
+            placeholder="YouTube, Streamtape o .mp4..."
             className="h-8 text-xs flex-1"
             onKeyDown={(e) => e.key === "Enter" && handleLoadVideo()}
           />
