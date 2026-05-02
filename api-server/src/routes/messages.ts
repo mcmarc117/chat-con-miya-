@@ -9,18 +9,6 @@ const router = Router();
 
 router.use(requireAuth);
 
-async function translateToJapanese(text: string): Promise<string> {
-  try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=es&tl=ja&dt=t&q=${encodeURIComponent(text)}`;
-    const response = await fetch(url);
-    const data = await response.json() as unknown[][];
-    const translated = (data[0] as unknown[][])?.map((item) => (item as unknown[])[0]).join("") ?? text;
-    return typeof translated === "string" && translated.trim() ? translated : text;
-  } catch {
-    return text;
-  }
-}
-
 // SSE endpoint for real-time messages
 router.get("/sse", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
@@ -118,17 +106,11 @@ router.post("/", async (req, res) => {
     return;
   }
 
-  // If Marc sends the message, translate from Spanish to Japanese for Miya
-  const isMarc = req.user!.username === "marc";
-  const finalContent = isMarc
-    ? await translateToJapanese(content.trim())
-    : content.trim();
-
   const [newMsg] = await db
     .insert(messagesTable)
     .values({
       senderId: req.user!.userId,
-      content: finalContent,
+      content: content.trim(),
       replyToId: replyToId ?? null,
     })
     .returning();
