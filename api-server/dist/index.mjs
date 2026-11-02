@@ -56974,12 +56974,12 @@ function extractTikTokId(url2) {
 function isTikTokUrl(url2) {
   return /^https?:\/\/([a-z0-9-]+\.)*tiktok\.com\//i.test(url2);
 }
-async function fetchWithTimeout(url2, ms) {
+async function fetchWithTimeout(url2, ms, manualRedirect = false) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
   try {
     return await fetch(url2, {
-      redirect: "follow",
+      redirect: manualRedirect ? "manual" : "follow",
       signal: controller.signal,
       headers: {
         "user-agent": BROWSER_UA,
@@ -56989,6 +56989,26 @@ async function fetchWithTimeout(url2, ms) {
   } finally {
     clearTimeout(timer);
   }
+}
+async function resolveRedirectChain(startUrl, maxHops = 6) {
+  const chain = [startUrl];
+  let current = startUrl;
+  for (let i = 0; i < maxHops; i++) {
+    let res;
+    try {
+      res = await fetchWithTimeout(current, 8e3, true);
+    } catch {
+      break;
+    }
+    const location = res.headers.get("location");
+    if (res.status >= 300 && res.status < 400 && location) {
+      current = new URL(location, current).toString();
+      chain.push(current);
+      continue;
+    }
+    break;
+  }
+  return chain;
 }
 router5.get("/resolve", async (req, res) => {
   const rawUrl = typeof req.query.url === "string" ? req.query.url.trim() : "";
@@ -57004,17 +57024,27 @@ router5.get("/resolve", async (req, res) => {
     let videoId = extractTikTokId(rawUrl);
     let canonicalUrl = rawUrl;
     if (!videoId) {
-      const finalRes = await fetchWithTimeout(rawUrl, 1e4);
-      const finalUrl = decodeURIComponent(finalRes.url || "");
-      videoId = extractTikTokId(finalUrl);
-      if (videoId) canonicalUrl = finalUrl;
-      if (!videoId && finalRes.status < 400) {
+      const chain = await resolveRedirectChain(rawUrl);
+      for (const hopUrl of chain) {
+        const decoded = decodeURIComponent(hopUrl);
+        const id = extractTikTokId(decoded);
+        if (id) {
+          videoId = id;
+          canonicalUrl = decoded;
+          break;
+        }
+      }
+      if (!videoId) {
+        const finalUrl = chain[chain.length - 1];
         try {
-          const text2 = await finalRes.text();
-          const m = text2.match(/\/video\/(\d{6,25})/) || text2.match(/"itemId"\s*:\s*"?(\d{6,25})"?/) || text2.match(/item_id=(\d{6,25})/);
-          if (m) {
-            videoId = m[1];
-            canonicalUrl = finalUrl || rawUrl;
+          const finalRes = await fetchWithTimeout(finalUrl, 8e3);
+          if (finalRes.status < 400) {
+            const text2 = await finalRes.text();
+            const m = text2.match(/\/video\/(\d{6,25})/) || text2.match(/"itemId"\s*:\s*"?(\d{6,25})"?/) || text2.match(/item_id=(\d{6,25})/);
+            if (m) {
+              videoId = m[1];
+              canonicalUrl = finalUrl;
+            }
           }
         } catch {
         }

@@ -27,12 +27,12 @@ function isTikTokUrl(url: string): boolean {
   return /^https?:\/\/([a-z0-9-]+\.)*tiktok\.com\//i.test(url);
 }
 
-async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
+async function fetchWithTimeout(url: string, ms: number, manualRedirect = false): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
   try {
     return await fetch(url, {
-      redirect: "follow",
+      redirect: manualRedirect ? "manual" : "follow",
       signal: controller.signal,
       headers: {
         "user-agent": BROWSER_UA,
@@ -42,6 +42,33 @@ async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Sigue la cadena de redirects manualmente y devuelve TODAS las URLs por las
+ * que pasa. Es importante no mirar solo la URL final: TikTok a veces hace un
+ * geo-redirect en los últimos saltos (p. ej. /hk/about) que esconde el id del
+ * video que sí aparecía en el primer Location.
+ */
+async function resolveRedirectChain(startUrl: string, maxHops = 6): Promise<string[]> {
+  const chain: string[] = [startUrl];
+  let current = startUrl;
+  for (let i = 0; i < maxHops; i++) {
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(current, 8_000, true);
+    } catch {
+      break; // timeout / red: nos quedamos con lo que tengamos
+    }
+    const location = res.headers.get("location");
+    if (res.status >= 300 && res.status < 400 && location) {
+      current = new URL(location, current).toString();
+      chain.push(current);
+      continue;
+    }
+    break;
+  }
+  return chain;
 }
 
 /**
@@ -66,25 +93,35 @@ router.get("/resolve", async (req, res) => {
     let videoId = extractTikTokId(rawUrl);
     let canonicalUrl = rawUrl;
 
-    // Links cortos (vm.tiktok.com / tiktok.com/t/...): seguimos la redirección
-    // en el servidor y leemos la URL final, que contiene /video/<id>.
+    // Links cortos (vm.tiktok.com / vt.tiktok.com / tiktok.com/t/...):
+    // recorremos la cadena de redirects y buscamos el id en cada salto.
     if (!videoId) {
-      const finalRes = await fetchWithTimeout(rawUrl, 10_000);
-      const finalUrl = decodeURIComponent(finalRes.url || "");
-      videoId = extractTikTokId(finalUrl);
-      if (videoId) canonicalUrl = finalUrl;
+      const chain = await resolveRedirectChain(rawUrl);
+      for (const hopUrl of chain) {
+        const decoded = decodeURIComponent(hopUrl);
+        const id = extractTikTokId(decoded);
+        if (id) {
+          videoId = id;
+          canonicalUrl = decoded;
+          break;
+        }
+      }
 
-      if (!videoId && finalRes.status < 400) {
-        // Último recurso: buscar el id dentro del HTML devuelto
+      if (!videoId) {
+        // Último recurso: buscar el id dentro del HTML final
+        const finalUrl = chain[chain.length - 1];
         try {
-          const text = await finalRes.text();
-          const m =
-            text.match(/\/video\/(\d{6,25})/) ||
-            text.match(/"itemId"\s*:\s*"?(\d{6,25})"?/) ||
-            text.match(/item_id=(\d{6,25})/);
-          if (m) {
-            videoId = m[1];
-            canonicalUrl = finalUrl || rawUrl;
+          const finalRes = await fetchWithTimeout(finalUrl, 8_000);
+          if (finalRes.status < 400) {
+            const text = await finalRes.text();
+            const m =
+              text.match(/\/video\/(\d{6,25})/) ||
+              text.match(/"itemId"\s*:\s*"?(\d{6,25})"?/) ||
+              text.match(/item_id=(\d{6,25})/);
+            if (m) {
+              videoId = m[1];
+              canonicalUrl = finalUrl;
+            }
           }
         } catch {
           // ignore
