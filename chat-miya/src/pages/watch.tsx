@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { ArrowLeft, Send, RefreshCw, Film } from "lucide-react";
 import { format } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Message } from "@workspace/api-client-react/src/generated/api.schemas";
+import type { Message } from "@workspace/api-client-react";
 
 interface WatchState {
   url: string;
@@ -71,6 +71,12 @@ export default function Watch() {
   const [videoUrl, setVideoUrl] = useState("");
   const [inputUrl, setInputUrl] = useState("");
   const [pendingSync, setPendingSync] = useState(false);
+  const videoUrlRef = useRef("");
+  const pendingApplyRef = useRef<WatchState | null>(null);
+
+  useEffect(() => {
+    videoUrlRef.current = videoUrl;
+  }, [videoUrl]);
 
   const { data: user, isError: authError } = useGetMe({
     query: { retry: false, queryKey: ["/api/auth/me"] },
@@ -138,9 +144,14 @@ export default function Watch() {
       .then((state: WatchState) => {
         if (state.url) {
           stateRef.current = state;
+          videoUrlRef.current = state.url;
           setVideoUrl(state.url);
           setInputUrl(state.url);
-          if (!isMarc) setPendingSync(true);
+          if (!isMarc) {
+            // auto-sincronizar cuando el reproductor termine de montar
+            setPendingSync(true);
+            pendingApplyRef.current = state;
+          }
         }
       });
   }, [user]);
@@ -179,21 +190,24 @@ export default function Watch() {
     sse.addEventListener("watch-state", (e) => {
       const state: WatchState = JSON.parse(e.data);
       stateRef.current = state;
-      if (state.url && state.url !== videoUrl) {
+      const urlChanged = !!state.url && state.url !== videoUrlRef.current;
+      if (urlChanged) {
+        videoUrlRef.current = state.url;
         setVideoUrl(state.url);
         setInputUrl(state.url);
       }
       if (!isMarc) {
         setPendingSync(false);
-        applyWatchState(state);
+        if (urlChanged) applyWatchStateWithRetry(state);
+        else applyWatchState(state);
       }
     });
 
     return () => sse.close();
-  }, [user, videoUrl, isMarc]);
+  }, [user, isMarc]);
 
-  function applyWatchState(state: WatchState) {
-    if (!state.url) return;
+  function applyWatchState(state: WatchState): boolean {
+    if (!state.url) return false;
     const elapsed = (Date.now() - state.updatedAt) / 1000;
     const targetTime = state.currentTime + (state.playing ? elapsed : 0);
 
@@ -206,13 +220,43 @@ export default function Watch() {
       if (state.playing) ytCmd(iframe, "playVideo");
       else ytCmd(iframe, "pauseVideo");
       setTimeout(() => { suppressRef.current = false; }, 1500);
+      return true;
     } else if (video) {
       video.currentTime = targetTime;
       if (state.playing) video.play().catch(() => setPendingSync(true));
       else video.pause();
-    } else {
-      setPendingSync(true);
+      return true;
     }
+    setPendingSync(true);
+    return false;
+  }
+
+  // Cuando Marc cambia el video, el reproductor nuevo todavía no está montado:
+  // guardamos el estado pendiente y lo aplicamos cuando el reproductor cargue
+  // (onLoad / onLoadedMetadata), con reintentos mientras no exista reproductor.
+  function applyWatchStateWithRetry(state: WatchState) {
+    pendingApplyRef.current = state;
+    if (applyWatchState(state)) {
+      setPendingSync(false);
+      return;
+    }
+    [900, 2200, 4200].forEach((delay) =>
+      setTimeout(() => {
+        if (pendingApplyRef.current === state) applyWatchState(state);
+      }, delay)
+    );
+  }
+
+  // El reproductor está montado pero la API de YouTube puede tardar un poco
+  // en inicializarse: reintentamos unas veces antes de rendirnos.
+  function applyPendingWhenReady() {
+    const state = pendingApplyRef.current;
+    if (!state) return;
+    [600, 1800, 3800].forEach((delay) =>
+      setTimeout(() => {
+        if (pendingApplyRef.current === state) applyWatchState(state);
+      }, delay)
+    );
   }
 
   async function postWatchState(url: string, playing: boolean, currentTime: number) {
@@ -235,7 +279,10 @@ export default function Watch() {
   }
 
   function handleSyncNow() {
-    if (stateRef.current) applyWatchState(stateRef.current);
+    if (stateRef.current) {
+      pendingApplyRef.current = stateRef.current;
+      applyWatchState(stateRef.current);
+    }
     setPendingSync(false);
   }
 
@@ -325,6 +372,7 @@ export default function Watch() {
                 JSON.stringify({ event: "listening" }),
                 "*"
               );
+              if (!isMarc) applyPendingWhenReady();
             }}
           />
         ) : vimeoEmbedUrl ? (
@@ -343,6 +391,7 @@ export default function Watch() {
             src={videoUrl}
             controls={isMarc}
             playsInline
+            onLoadedMetadata={isMarc ? undefined : () => applyPendingWhenReady()}
             onPlay={isMarc ? () => postWatchState(videoUrl, true, videoRef.current?.currentTime ?? 0) : undefined}
             onPause={isMarc ? () => postWatchState(videoUrl, false, videoRef.current?.currentTime ?? 0) : undefined}
             onSeeked={isMarc ? () => postWatchState(videoUrl, !videoRef.current?.paused, videoRef.current?.currentTime ?? 0) : undefined}

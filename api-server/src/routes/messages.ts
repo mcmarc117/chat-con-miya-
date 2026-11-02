@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, messagesTable, usersTable } from "@workspace/db";
-import { eq, desc, isNull, lt, and, ne, inArray } from "drizzle-orm";
+import { eq, desc, isNull, lt, and, ne, inArray, sql } from "drizzle-orm";
 import { SendMessageBody, GetMessagesQueryParams, DeleteMessageParams } from "@workspace/api-zod";
 import { requireAuth } from "../lib/session";
 import { broadcastMessage, addSSEClient, removeSSEClient } from "../lib/sse";
@@ -59,7 +59,9 @@ router.get("/", async (req, res) => {
     .from(messagesTable)
     .innerJoin(usersTable, eq(messagesTable.senderId, usersTable.id))
     .where(and(...conditions))
-    .orderBy(desc(messagesTable.createdAt))
+    // Ordenamos por id (monótono): evita desorden cuando dos mensajes
+    // comparten exactamente el mismo createdAt.
+    .orderBy(desc(messagesTable.id))
     .limit(limit);
 
   // Fetch reply content in a separate query (avoids self-join / alias issues)
@@ -166,8 +168,8 @@ router.post("/read", async (req, res) => {
 
 // GET /messages/unread-count
 router.get("/unread-count", async (req, res) => {
-  const rows = await db
-    .select({ id: messagesTable.id })
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
     .from(messagesTable)
     .where(
       and(
@@ -177,7 +179,7 @@ router.get("/unread-count", async (req, res) => {
       ),
     );
 
-  res.json({ count: rows.length });
+  res.json({ count: row?.count ?? 0 });
 });
 
 // DELETE /messages/:id

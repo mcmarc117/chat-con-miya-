@@ -1,0 +1,15 @@
+# Dependencias
+node_modules/
+
+# Builds locales del frontend (api-server/dist SÍ se versiona para Render)
+chat-miya/dist/
+mockup-sandbox/dist/
+
+# Entorno y secretos
+.env
+.env.*
+!.env.example
+
+# Sistema / editor
+.DS_Store
+*.log

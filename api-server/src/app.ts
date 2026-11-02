@@ -28,7 +28,27 @@ app.use(
     },
   }),
 );
-app.use(cors({ credentials: true, origin: true }));
+// CORS: solo reflejamos cualquier origen en desarrollo. En producción se
+// permiten únicamente los orígenes listados en CORS_ORIGINS (separados por
+// coma). Las peticiones same-origin no envían cabecera Origin y siempre
+// pasan, así que el frontend servido desde Render sigue funcionando igual.
+const allowedOrigins = (process.env.CORS_ORIGINS ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    credentials: true,
+    origin(origin, callback) {
+      if (!origin || process.env.NODE_ENV !== "production") {
+        callback(null, true);
+        return;
+      }
+      callback(null, allowedOrigins.includes(origin));
+    },
+  }),
+);
 app.use(cookieParser(process.env.SESSION_SECRET));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

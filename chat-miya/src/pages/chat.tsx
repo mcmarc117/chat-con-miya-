@@ -12,11 +12,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { LogOut, Trash2, Check, CheckCheck, Send, Smile, Reply, X, Tv } from "lucide-react";
+import { SiTiktok } from "react-icons/si";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import type { Message } from "@workspace/api-client-react/src/generated/api.schemas";
+import type { Message } from "@workspace/api-client-react";
 
 const EMOJI_LIST = [
   "❤️","🥰","😍","😘","💋","💕","💞","💓","💗","💖",
@@ -90,12 +91,12 @@ export default function Chat() {
   useEffect(() => {
     const handleFocus = () => {
       if (user && document.hasFocus()) {
-        markReadMutation.mutate({});
+        markReadMutation.mutate();
       }
     };
     window.addEventListener("focus", handleFocus);
     if (user && document.hasFocus()) {
-      markReadMutation.mutate({});
+      markReadMutation.mutate();
     }
     return () => window.removeEventListener("focus", handleFocus);
   }, [user]);
@@ -112,7 +113,7 @@ export default function Chat() {
       });
       queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey() });
       if (msg.senderId !== user.id && document.hasFocus()) {
-        markReadMutation.mutate({});
+        markReadMutation.mutate();
       }
       setTimeout(scrollToBottom, 50);
     });
@@ -284,7 +285,7 @@ export default function Chat() {
   };
 
   const handleTouchEnd = (msg: Message) => {
-    if (swipeOffset?.id === msg.id) {
+    if (swipeOffset && swipeOffset.id === msg.id) {
       if (swipeOffset.x >= 50) {
         setReplyTo(msg);
         setSelectedMsgId(null);
@@ -331,6 +332,15 @@ export default function Chat() {
             title="Watch Party"
           >
             <Tv className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-primary"
+            onClick={() => setLocation("/tiktok")}
+            title="TikTok Player"
+          >
+            <SiTiktok className="w-4 h-4" />
           </Button>
           <Button
             variant="ghost"
@@ -383,7 +393,8 @@ export default function Chat() {
                       new Date(messages[idx - 1].createdAt).getTime() >
                       5 * 60 * 1000;
                   const isSelected = selectedMsgId === msg.id;
-                  const currentSwipeX = swipeOffset?.id === msg.id ? swipeOffset.x : 0;
+                  const currentSwipeX =
+                    swipeOffset && swipeOffset.id === msg.id ? swipeOffset.x : 0;
 
                   return (
                     <div key={msg.id} className="flex flex-col">
@@ -489,7 +500,7 @@ export default function Chat() {
                               exit={{ opacity: 0, scale: 0.8 }}
                               className="absolute -bottom-7 right-0 flex items-center gap-1 text-destructive text-xs bg-background border border-border rounded-full px-2.5 py-1 shadow-md z-10"
                               onClick={() => {
-                                deleteMessageMutation.mutate({ id: String(msg.id) });
+                                deleteMessageMutation.mutate({ id: msg.id });
                                 setSelectedMsgId(null);
                               }}
                             >

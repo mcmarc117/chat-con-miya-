@@ -8,7 +8,10 @@ export function hashPassword(password: string): string {
 
 export function verifyPassword(password: string, stored: string): boolean {
   const [salt, hash] = stored.split(":");
+  if (!salt || !hash) return false;
   const hashBuffer = Buffer.from(hash, "hex");
   const derivedHash = scryptSync(password, salt, 64);
+  // timingSafeEqual lanza excepción si las longitudes difieren
+  if (hashBuffer.length !== derivedHash.length) return false;
   return timingSafeEqual(hashBuffer, derivedHash);
 }

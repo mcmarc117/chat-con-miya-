@@ -6,6 +6,7 @@ import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import Chat from "@/pages/chat";
 import Watch from "@/pages/watch";
+import TikTokPlayer from "@/pages/tiktok";
 
 const queryClient = new QueryClient();
 
@@ -14,6 +15,7 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/watch" component={Watch} />
+      <Route path="/tiktok" component={TikTokPlayer} />
       <Route path="/" component={Chat} />
       <Route component={NotFound} />
     </Switch>

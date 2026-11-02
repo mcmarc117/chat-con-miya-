@@ -3,6 +3,7 @@ import healthRouter from "./health";
 import authRouter from "./auth";
 import messagesRouter from "./messages";
 import watchRouter from "./watch";
+import tiktokRouter from "./tiktok";
 
 const router: IRouter = Router();
 
@@ -10,5 +11,6 @@ router.use(healthRouter);
 router.use("/auth", authRouter);
 router.use("/messages", messagesRouter);
 router.use("/watch", watchRouter);
+router.use("/tiktok", tiktokRouter);
 
 export default router;
