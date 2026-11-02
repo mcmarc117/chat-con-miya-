@@ -34,6 +34,15 @@ async function runMigrations() {
     ALTER TABLE messages
     ADD COLUMN IF NOT EXISTS reply_to_id INTEGER
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS watch_state (
+      id INTEGER PRIMARY KEY,
+      url TEXT NOT NULL DEFAULT '',
+      playing BOOLEAN NOT NULL DEFAULT FALSE,
+      current_time DOUBLE PRECISION NOT NULL DEFAULT 0,
+      updated_at BIGINT NOT NULL DEFAULT 0
+    )
+  `);
   logger.info("Migrations complete.");
 }
 

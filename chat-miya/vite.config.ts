@@ -45,6 +45,14 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    // Proxy del API en desarrollo: apunta al api-server local (o a Render
+    // exportando API_PROXY_TARGET=https://tu-servicio.onrender.com)
+    proxy: process.env.NODE_ENV !== "production" ? {
+      "/api": {
+        target: process.env.API_PROXY_TARGET ?? "http://localhost:4000",
+        changeOrigin: true,
+      },
+    } : undefined,
     fs: {
       strict: true,
       deny: ["**/.*"],
